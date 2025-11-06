@@ -1,0 +1,7 @@
+pybullet
+numpy
+scikit-fuzzy
+scipy
+packaging
+networkx
+matplotlib
