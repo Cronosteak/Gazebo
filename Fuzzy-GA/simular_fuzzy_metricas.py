@@ -1,97 +1,79 @@
-import pybullet as p
-import pybullet_data
+
+
+from laikago_robot import LaikagoRobot
+from fuzzy_controller import fuzzy_step
 import numpy as np
-import time
-import csv
-from fuzzy_controller import fuzzy_avance, fuzzy_direccion
 
-# Configuración de simulación
-DT = 0.01
+# Punto A (inicio) y punto B (objetivo)
+PUNTO_A = np.array([0.0, 0.0])
+PUNTO_B = np.array([1.0, 0.0])
 
-# Inicializar PyBullet
-p.connect(p.GUI)
-p.setAdditionalSearchPath(pybullet_data.getDataPath())
-p.resetSimulation()
-p.setGravity(0, 0, -9.81)
+robot = LaikagoRobot(gui=True)
+robot.connect()
+robot.reset_pose()
 
-# Cargar plano y robot (ajusta el path de URDF según tu entorno)
-plane = p.loadURDF("plane.urdf")
-horizontal_orientation = p.getQuaternionFromEuler([np.pi/2, 0, 0])
-robot = p.loadURDF("laikago/laikago_toes.urdf", [0, 0, 0.45], baseOrientation=horizontal_orientation)
+secuencia_patas = [0, 1, 2, 3]  # FR, FL, RR, RL (índices)
+nombre_patas = ['cmd_FR', 'cmd_FL', 'cmd_RR', 'cmd_RL']
+MAX_FORCE = 100
+MAX_VELOCITY = 4.0
+SECUENCIA = [
+    (1.2, -0.6),   # levantar
+    (1.5, -0.8),   # adelantar
+    (0.67, -1.25)  # apoyar
+]
+
+paso = 0
+fase = 0
+
+while True:
+    pos, orn = robot.get_base_position()
+    pos_xy = np.array([pos[0], pos[1]])
+    error_avance = PUNTO_B[0] - pos_xy[0]
+    ang_obj = np.arctan2(PUNTO_B[1] - pos_xy[1], PUNTO_B[0] - pos_xy[0]) * 180/np.pi
+    import pybullet as p
+    euler = p.getEulerFromQuaternion(orn)
+    yaw = euler[2] * 180/np.pi
+    error_orientacion = ang_obj - yaw
+
+    outputs = fuzzy_step(fase, error_avance, error_orientacion)
+    print(f"Fase: {fase} | Paso: {paso}")
+    print(f"Comandos difusos: {outputs}")
+    print(f"Posición base: {pos_xy}")
 
 
-# IDs de las articulaciones relevantes (ajusta según tu robot)
-JOINT_NAMES = ['FL_hip', 'FL_thigh', 'FL_calf', 'FR_hip', 'FR_thigh', 'FR_calf',
-			   'RL_hip', 'RL_thigh', 'RL_calf', 'RR_hip', 'RR_thigh', 'RR_calf']
-JOINT_IDS = list(range(12))
+    abduccion = [0.0]*4
+    muslo = [0.67]*4
+    rodilla = [-1.25]*4
 
-# Parámetros de marcha crawl (patrón cruzado)
-def crawl_pattern(step, amp=0.3):
-	phase = (step * DT * 2 * np.pi) / 1.0
-	# FL+RR avanzan, FR+RL retroceden
-	muslo = [amp * np.sin(phase), amp * np.sin(phase + np.pi),
-			 amp * np.sin(phase + np.pi), amp * np.sin(phase)]
-	rodilla = [amp * np.cos(phase), amp * np.cos(phase + np.pi),
-			   amp * np.cos(phase + np.pi), amp * np.cos(phase)]
-	# Compensación de cadera/abducción para estabilidad
-	abduccion = [0.1, -0.1, -0.1, 0.1]  # FL, FR, RL, RR
-	return muslo, rodilla, abduccion
 
-# Registro de métricas
-metrics = []
+    # Secuencia: mueve una pata por ciclo y empuja el cuerpo
+    if outputs['cmd_avance'] > 0.3 and outputs[nombre_patas[secuencia_patas[fase]]] > 0.3:
+        print(f"Moviendo pata: {nombre_patas[secuencia_patas[fase]]} (índice {secuencia_patas[fase]})")
+        muslo_avance, rodilla_avance = SECUENCIA[paso]
+        pata = secuencia_patas[fase]
+        muslo[pata] = muslo_avance + 0.3
+        rodilla[pata] = rodilla_avance + 0.2
+        abduccion[pata] = 0.3  # abrir lateralmente la pata que avanza
+        # Empuje del cuerpo: mueve ligeramente todas las patas hacia adelante
+        for i in range(4):
+            if i != pata:
+                muslo[i] += 0.15
 
-step = 0
-while p.isConnected():
-	# Leer posición y orientación base
-	pos, orn = p.getBasePositionAndOrientation(robot)
-	# Errores para fuzzy (ejemplo: distancia al objetivo, orientación)
-	error_avance = 0.0  # Aquí puedes calcular el error real
-	error_direccion = 0.0
+        # Forzar pequeño desplazamiento del cuerpo
+        pos, orn = robot.get_base_position()
+        nueva_pos = [pos[0] + 0.01, pos[1], pos[2]]
+        p.resetBasePositionAndOrientation(robot.robot, nueva_pos, orn)
 
-	# Fase inicial: robot estable (primeros 2 segundos)
-	if step < int(2.0 / DT):
-		avance_cmd = 0.0
-		direccion_cmd = 0.0
-	else:
-		avance_cmd = fuzzy_avance(5.0, error_avance)  # Ejemplo: avanzar
-		direccion_cmd = fuzzy_direccion(0.0, error_direccion)  # Ejemplo: sin giro
+    # Las patas en soporte se mantienen en pose inicial
+    for i, key in enumerate(nombre_patas):
+        if outputs[key] < 0.5:
+            muslo[i] = 0.67
+            rodilla[i] = -1.25
 
-	# Patrón de marcha crawl con compensación
-	muslo, rodilla, abduccion = crawl_pattern(step, amp=avance_cmd)
+    robot.set_joint_commands(abduccion, muslo, rodilla, max_force=MAX_FORCE, max_velocity=MAX_VELOCITY)
+    robot.step()
 
-	# Parámetros de control
-	max_force = 40  # Fuerza máxima intermedia
-	max_velocity = 2.0  # Velocidad máxima intermedia
-	for i, jid in enumerate(JOINT_IDS):
-		if 'hip' in JOINT_NAMES[i]:
-			p.setJointMotorControl2(robot, jid, p.POSITION_CONTROL, targetPosition=abduccion[i//3], force=max_force, maxVelocity=max_velocity)
-		elif 'thigh' in JOINT_NAMES[i]:
-			p.setJointMotorControl2(robot, jid, p.POSITION_CONTROL, targetPosition=muslo[i//3], force=max_force, maxVelocity=max_velocity)
-		elif 'calf' in JOINT_NAMES[i]:
-			p.setJointMotorControl2(robot, jid, p.POSITION_CONTROL, targetPosition=rodilla[i//3], force=max_force, maxVelocity=max_velocity)
-		else:
-			p.setJointMotorControl2(robot, jid, p.POSITION_CONTROL, targetPosition=0.0, force=max_force, maxVelocity=max_velocity)
-
-	# Guardar métricas
-	metrics.append({
-		'step': step,
-		'x': pos[0],
-		'y': pos[1],
-		'z': pos[2],
-		'avance_cmd': avance_cmd,
-		'direccion_cmd': direccion_cmd
-	})
-
-	p.stepSimulation()
-	time.sleep(DT)
-	step += 1
-
-# Guardar métricas en CSV
-with open('metricas_simulacion.csv', 'w', newline='') as csvfile:
-	fieldnames = ['step', 'x', 'y', 'z', 'avance_cmd', 'direccion_cmd']
-	writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-	writer.writeheader()
-	for row in metrics:
-		writer.writerow(row)
-
-p.disconnect()
+    # Avanzar secuencia y fase
+    paso = (paso + 1) % len(SECUENCIA)
+    if paso == 0:
+        fase = (fase + 1) % 4
