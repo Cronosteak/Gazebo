@@ -38,16 +38,16 @@ for cmd in [cmd_FL, cmd_RR, cmd_FR, cmd_RL, cmd_avance]:
 
 
 
-# Reglas de avance cruzado y reglas por defecto para evitar KeyError
+# Reglas de avance secuencial por fase
 rules = [
+    ctrl.Rule(fase['FL'] & error_avance['pos'], cmd_FL['si']),
+    ctrl.Rule(fase['FL'] & error_avance['pos'], cmd_avance['si']),
+    ctrl.Rule(fase['RR'] & error_avance['pos'], cmd_RR['si']),
+    ctrl.Rule(fase['RR'] & error_avance['pos'], cmd_avance['si']),
     ctrl.Rule(fase['FR'] & error_avance['pos'], cmd_FR['si']),
     ctrl.Rule(fase['FR'] & error_avance['pos'], cmd_avance['si']),
-    ctrl.Rule(fase['FL'] & cmd_FR['si'], cmd_FL['si']),
-    ctrl.Rule(fase['FL'] & cmd_FR['si'], cmd_avance['si']),
-    ctrl.Rule(fase['RR'] & cmd_FL['si'], cmd_RR['si']),
-    ctrl.Rule(fase['RR'] & cmd_FL['si'], cmd_avance['si']),
-    ctrl.Rule(fase['RL'] & cmd_RR['si'], cmd_RL['si']),
-    ctrl.Rule(fase['RL'] & cmd_RR['si'], cmd_avance['si']),
+    ctrl.Rule(fase['RL'] & error_avance['pos'], cmd_RL['si']),
+    ctrl.Rule(fase['RL'] & error_avance['pos'], cmd_avance['si']),
     # Mantener equilibrio según orientación
     ctrl.Rule(error_orientacion['izq'], cmd_FL['no']),
     ctrl.Rule(error_orientacion['der'], cmd_FR['no']),
@@ -56,7 +56,15 @@ rules = [
     ctrl.Rule(~fase['FL'], cmd_FL['no']),
     ctrl.Rule(~fase['RR'], cmd_RR['no']),
     ctrl.Rule(~fase['RL'], cmd_RL['no']),
-    ctrl.Rule(error_avance['cero'], cmd_avance['no'])
+    ctrl.Rule(error_avance['cero'], cmd_avance['no']),
+    # Regla: avanzar si al menos dos patas están en apoyo (trote)
+    ctrl.Rule(
+        ((cmd_FR['si'] & cmd_RL['si']) |
+         (cmd_FL['si'] & cmd_RR['si']) |
+         (cmd_FR['si'] & cmd_FL['si']) |
+         (cmd_RR['si'] & cmd_RL['si'])),
+        cmd_avance['si']
+    ),
 ]
 
 # Sistema de control
