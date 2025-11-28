@@ -36,8 +36,14 @@ class LaikagoRobot:
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         p.loadURDF("plane.urdf")
-        orientation = p.getQuaternionFromEuler([np.pi/2, 0, np.pi/2])
+        # Girar 180 grados en Z para que mire hacia el eje X negativo
+        orientation = p.getQuaternionFromEuler([np.pi/2, 0, -np.pi/2])
         self.robot = p.loadURDF("laikago/laikago_toes.urdf", [0, 0, 0.38], baseOrientation=orientation)
+        # Ajustar cámara para vista lateral (eje Y)
+        if self.gui:
+            # Camera follows robot from the side (lateral view)
+            pos, _ = p.getBasePositionAndOrientation(self.robot)
+            p.resetDebugVisualizerCamera(cameraDistance=2.5, cameraYaw=90, cameraPitch=-20, cameraTargetPosition=[pos[0], pos[1], 0.5])
         print("Articulaciones del robot cargado:")
         for i in range(p.getNumJoints(self.robot)):
             info = p.getJointInfo(self.robot, i)

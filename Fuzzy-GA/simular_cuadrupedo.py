@@ -13,8 +13,6 @@ def main():
     # Carga el plano
     plane_id = p.loadURDF("plane.urdf")
 
-    # Elige el modelo a cargar: "mini_cheetah" o "laikago"
-    # Usar el Laikago oficial de PyBullet
     laikago_urdf = os.path.join(pybullet_data.getDataPath(), "laikago/laikago_toes.urdf")
     orn = p.getQuaternionFromEuler([1.5708, 0, 1.5708])
     robot_id = p.loadURDF(laikago_urdf, [0, 0, 0.35], orn)
